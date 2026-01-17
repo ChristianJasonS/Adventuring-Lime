@@ -9,40 +9,39 @@ import Combine
 
 @MainActor
 final class GameManager: ObservableObject {
-
-
-    // MARK: - Singleton
     static let shared = GameManager()
-    private init() {}
+    
+    // Load data when the app starts
+    private init() {
+        let savedUser = DataManager.shared.load()
+        self.userXP = savedUser.xp
+        self.exploredTiles = savedUser.exploredTiles
+        self.visitedPOIs = savedUser.visitedPOIs
+    }
 
-    // MARK: - Player State
     @Published var userXP: Int = 0
     @Published var exploredTiles: Set<String> = []
     @Published var visitedPOIs: Set<String> = []
-
-    // MARK: - Session State
     @Published var currentQuest: String? = nil
-    @Published var highlightedPOI: String? = nil
 
-    // MARK: - Intent APIs
-    func addXP( amount: Int) {
+    // Save data whenever it changes
+    func addXP(_ amount: Int) {
         userXP += amount
+        saveData()
     }
 
     func exploreTile(id: String) {
         exploredTiles.insert(id)
+        saveData()
     }
 
-    func visitPOI(id: String) {
-        visitedPOIs.insert(id)
+    private func saveData() {
+        let user = User(xp: userXP, exploredTiles: exploredTiles, visitedPOIs: visitedPOIs)
+        DataManager.shared.save(user: user)
     }
-
-    func startQuest( quest: String) {
+    
+    func startQuest(_ quest: String) {
         currentQuest = quest
-    }
-
-    func endQuest() {
-        currentQuest = nil
     }
 }
 
