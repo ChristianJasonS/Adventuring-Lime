@@ -18,7 +18,7 @@ struct ContentView: View {
                 .foregroundColor(.green)
             
             Button("Simulate Quest (+50 XP)") {
-                gameManager.addXP(amount: 50)
+                gameManager.addXP(50)
             }
             .buttonStyle(.borderedProminent)
         }
