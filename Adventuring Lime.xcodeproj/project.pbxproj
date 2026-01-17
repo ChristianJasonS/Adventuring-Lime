@@ -177,6 +177,9 @@
 			);
 			mainGroup = 7563C7662F1C0A0100C4EE57;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				F1F60E532F1C17F300E54152 /* XCRemoteSwiftPackageReference "swift-async-algorithms" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 7563C7702F1C0A0100C4EE57 /* Products */;
 			projectDirPath = "";
@@ -560,6 +563,17 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		F1F60E532F1C17F300E54152 /* XCRemoteSwiftPackageReference "swift-async-algorithms" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/apple/swift-async-algorithms.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.1.1;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
 	};
 	rootObject = 7563C7672F1C0A0100C4EE57 /* Project object */;
 }

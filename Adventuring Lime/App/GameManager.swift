@@ -1,16 +1,15 @@
 //
 //  GameManager.swift
-//  
+//
 //
 //  Created by Mahir Chowdhury on 2026-01-17.
 //
 import SwiftUI
-internal import Combine
+import Combine
 
 @MainActor
 final class GameManager: ObservableObject {
-    var objectWillChange: ObservableObjectPublisher
-    
+
 
     // MARK: - Singleton
     static let shared = GameManager()
@@ -26,7 +25,7 @@ final class GameManager: ObservableObject {
     @Published var highlightedPOI: String? = nil
 
     // MARK: - Intent APIs
-    func addXP(_ amount: Int) {
+    func addXP( amount: Int) {
         userXP += amount
     }
 
@@ -38,7 +37,7 @@ final class GameManager: ObservableObject {
         visitedPOIs.insert(id)
     }
 
-    func startQuest(_ quest: String) {
+    func startQuest( quest: String) {
         currentQuest = quest
     }
 
