@@ -5,6 +5,7 @@
 //  Created by Mahir Chowdhury on 2026-01-17.
 //
 import SwiftUI
+import Combine
 
 @MainActor
 final class GameManager: ObservableObject {
