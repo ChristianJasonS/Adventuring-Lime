@@ -1,61 +1,26 @@
-//
-//  ContentView.swift
-//  Adventuring Lime
-//
-//  Created by Christian Jason Sumitro on 17/01/26.
-//
-
 import SwiftUI
-import SwiftData
 
 struct ContentView: View {
-    @Environment(\.modelContext) private var modelContext
-    @Query private var items: [Item]
+    @EnvironmentObject var gameManager: GameManager
 
     var body: some View {
-        NavigationSplitView {
-            List {
-                ForEach(items) { item in
-                    NavigationLink {
-                        Text("Item at \(item.timestamp, format: Date.FormatStyle(date: .numeric, time: .standard))")
-                    } label: {
-                        Text(item.timestamp, format: Date.FormatStyle(date: .numeric, time: .standard))
-                    }
-                }
-                .onDelete(perform: deleteItems)
+        VStack(spacing: 20) {
+            Image(systemName: "map.fill")
+                .font(.system(size: 60))
+                .foregroundColor(.blue)
+            
+            Text("AdventureLime Debug")
+                .font(.largeTitle)
+                .bold()
+            
+            Text("XP: \(gameManager.userXP)")
+                .font(.system(size: 50, weight: .heavy))
+                .foregroundColor(.green)
+            
+            Button("Simulate Quest (+50 XP)") {
+                gameManager.addXP(amount: 50)
             }
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    EditButton()
-                }
-                ToolbarItem {
-                    Button(action: addItem) {
-                        Label("Add Item", systemImage: "plus")
-                    }
-                }
-            }
-        } detail: {
-            Text("Select an item")
+            .buttonStyle(.borderedProminent)
         }
     }
-
-    private func addItem() {
-        withAnimation {
-            let newItem = Item(timestamp: Date())
-            modelContext.insert(newItem)
-        }
-    }
-
-    private func deleteItems(offsets: IndexSet) {
-        withAnimation {
-            for index in offsets {
-                modelContext.delete(items[index])
-            }
-        }
-    }
-}
-
-#Preview {
-    ContentView()
-        .modelContainer(for: Item.self, inMemory: true)
 }
