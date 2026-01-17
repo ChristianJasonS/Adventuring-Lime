@@ -5,10 +5,12 @@
 //  Created by Mahir Chowdhury on 2026-01-17.
 //
 import SwiftUI
-import Combine
+internal import Combine
 
 @MainActor
 final class GameManager: ObservableObject {
+    var objectWillChange: ObservableObjectPublisher
+    
 
     // MARK: - Singleton
     static let shared = GameManager()
