@@ -11,7 +11,6 @@
 		75BC87EA2F1C0DEA00831F88 /* RecommendationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75BC87E42F1C0DEA00831F88 /* RecommendationView.swift */; };
 		75BC87EB2F1C0DEA00831F88 /* AIservice.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75BC87E32F1C0DEA00831F88 /* AIservice.swift */; };
 		75BC87EC2F1C0DEA00831F88 /* AdventureLimeApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75BC87DF2F1C0DEA00831F88 /* AdventureLimeApp.swift */; };
-		75BC87ED2F1C0DEA00831F88 /* Exploration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75BC87E62F1C0DEA00831F88 /* Exploration.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -39,7 +38,6 @@
 		75BC87E02F1C0DEA00831F88 /* GameManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GameManager.swift; sourceTree = "<group>"; };
 		75BC87E32F1C0DEA00831F88 /* AIservice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIservice.swift; sourceTree = "<group>"; };
 		75BC87E42F1C0DEA00831F88 /* RecommendationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecommendationView.swift; sourceTree = "<group>"; };
-		75BC87E62F1C0DEA00831F88 /* Exploration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Exploration.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -56,6 +54,11 @@
 		7563C78B2F1C0A0300C4EE57 /* Adventuring LimeUITests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = "Adventuring LimeUITests";
+			sourceTree = "<group>";
+		};
+		F17AA6F02F1C0FFC0069B55C /* Exploration */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = Exploration;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -128,8 +131,8 @@
 		75BC87E72F1C0DEA00831F88 /* Features */ = {
 			isa = PBXGroup;
 			children = (
+				F17AA6F02F1C0FFC0069B55C /* Exploration */,
 				75BC87E52F1C0DEA00831F88 /* Recommendation */,
-				75BC87E62F1C0DEA00831F88 /* Exploration.swift */,
 			);
 			path = Features;
 			sourceTree = "<group>";
@@ -151,6 +154,7 @@
 			);
 			fileSystemSynchronizedGroups = (
 				7563C7712F1C0A0100C4EE57 /* Adventuring Lime */,
+				F17AA6F02F1C0FFC0069B55C /* Exploration */,
 			);
 			name = "Adventuring Lime";
 			packageProductDependencies = (
@@ -282,7 +286,6 @@
 				75BC87EA2F1C0DEA00831F88 /* RecommendationView.swift in Sources */,
 				75BC87EB2F1C0DEA00831F88 /* AIservice.swift in Sources */,
 				75BC87EC2F1C0DEA00831F88 /* AdventureLimeApp.swift in Sources */,
-				75BC87ED2F1C0DEA00831F88 /* Exploration.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
