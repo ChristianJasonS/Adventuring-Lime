@@ -101,7 +101,7 @@ struct GreyedMapView: UIViewRepresentable {
     func makeUIView(context: Context) -> MKMapView {
         let mapView = MKMapView()
         mapView.delegate = context.coordinator
-        context.coordinator.attachMapView(mapView)
+        context.coordinator.attachMapView(mapView, campusRect: campusMapRect())
         context.coordinator.setShowPath(showPath)
         context.coordinator.handleClearPathToken(clearPathToken)
         
@@ -119,7 +119,7 @@ struct GreyedMapView: UIViewRepresentable {
         )
         mapView.setCameraZoomRange(zoomRange, animated: false)
         
-        // Map configuration - satellite view with no labels
+        // Map configuration - muted standard style
         mapView.mapType = .mutedStandard
         mapView.isRotateEnabled = false
         mapView.isPitchEnabled = false
@@ -147,7 +147,6 @@ struct GreyedMapView: UIViewRepresentable {
         
         // Add overlays
         addBlackoutOverlay(to: mapView)
-        context.coordinator.restorePathOverlay()
         
         return mapView
     }
@@ -200,10 +199,6 @@ struct GreyedMapView: UIViewRepresentable {
         blackoutOverlay.title = "blackout"
         mapView.addOverlay(blackoutOverlay, level: .aboveLabels)
 
-        // Add a translucent red filter over the campus area
-        let campusOverlay = MKPolygon(coordinates: campusCutout, count: campusCutout.count)
-        campusOverlay.title = "campusRed"
-        mapView.addOverlay(campusOverlay, level: .aboveLabels)
     }
 
     private func makeRoundedRectBoundary(
@@ -278,19 +273,69 @@ struct GreyedMapView: UIViewRepresentable {
             return CLLocationCoordinate2D(latitude: lat, longitude: lon)
         }
     }
+
+    private func campusMapRect() -> MKMapRect {
+        let minLat = campusCenter.latitude - campusSpan.latitudeDelta / 2
+        let maxLat = campusCenter.latitude + campusSpan.latitudeDelta / 2
+        let minLon = campusCenter.longitude - campusSpan.longitudeDelta / 2
+        let maxLon = campusCenter.longitude + campusSpan.longitudeDelta / 2
+
+        let topLeft = MKMapPoint(CLLocationCoordinate2D(latitude: maxLat, longitude: minLon))
+        let bottomRight = MKMapPoint(CLLocationCoordinate2D(latitude: minLat, longitude: maxLon))
+
+        let x = min(topLeft.x, bottomRight.x)
+        let y = min(topLeft.y, bottomRight.y)
+        let width = abs(topLeft.x - bottomRight.x)
+        let height = abs(topLeft.y - bottomRight.y)
+
+        return MKMapRect(x: x, y: y, width: width, height: height)
+    }
     
     class Coordinator: NSObject, MKMapViewDelegate, CLLocationManagerDelegate {
         private let locationManager = CLLocationManager()
         private weak var mapView: MKMapView?
+        private let dataQueue = DispatchQueue(label: "campus.path.data.queue")
+        private let analysisQueue = DispatchQueue(label: "campus.path.analysis.queue", qos: .utility)
+
+        private var analysisTimer: Timer?
         private var polyline: MKPolyline?
-        private var pathCoordinates: [CLLocationCoordinate2D] = []
+        private var pathPoints: [CLLocationCoordinate2D] = []
+        private var lastAnalyzedIndex: Int = 0
+        private var pendingPolylineUpdate: DispatchWorkItem?
+
+        private var tileDefinitions: [String: TileDefinition] = [:]
+        private var tileStates: [String: TileState] = [:]
+        private var tileOverlays: [String: MKPolygon] = [:]
+        private var campusMapRect: MKMapRect = .null
+        private var tileRows: Int = 0
+        private var tileCols: Int = 0
+        private var pendingTileIds: [String] = []
+        private var isAddingTiles = false
+
+        private var campusRedOverlay: MKPolygon?
+        private var unlockedTilesOverlay: MKMultiPolygon?
+        private var gridOverlay: MKMultiPolyline?
+
         private var showPath = true
         private var lastClearToken = 0
-        private let movementThresholdMeters: CLLocationDistance = 5
-        private let storageKey = "campusUserPath"
+
+        private let movementThresholdMeters: CLLocationDistance = 10
+        private let tileSizeMeters: Double = 3000
+        private let sampleSpacingMeters: Double = 40
+        private let unlockThreshold: Double = 0.5
+
+        private lazy var requiredHitsPerTile: Int = {
+            let base = Int(tileSizeMeters / sampleSpacingMeters)
+            return max(6, base * 2)
+        }()
+
+        private lazy var persistenceURL: URL = {
+            let base = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+            return base.appendingPathComponent("campus_progress.json")
+        }()
 
         var parent: GreyedMapView
-        
+
         init(_ parent: GreyedMapView) {
             self.parent = parent
             super.init()
@@ -298,10 +343,12 @@ struct GreyedMapView: UIViewRepresentable {
             locationManager.desiredAccuracy = kCLLocationAccuracyBest
         }
 
-        func attachMapView(_ mapView: MKMapView) {
+        func attachMapView(_ mapView: MKMapView, campusRect: MKMapRect) {
             self.mapView = mapView
-            restorePathOverlay()
+            self.campusMapRect = campusRect
+            setupTilesAndStateIfNeeded()
             startLocationUpdates()
+            startBackgroundAnalyzer()
         }
 
         func setShowPath(_ isVisible: Bool) {
@@ -309,28 +356,51 @@ struct GreyedMapView: UIViewRepresentable {
             if !isVisible, let mapView, let polyline {
                 mapView.removeOverlay(polyline)
             } else if isVisible {
-                updatePolyline()
-                keepPathVisible()
+                schedulePolylineUpdate()
             }
         }
 
         func handleClearPathToken(_ token: Int) {
             guard token != lastClearToken else { return }
             lastClearToken = token
-            clearPath()
+            clearProgress()
         }
-        
+
+        // MARK: - Map Rendering
         func mapView(_ mapView: MKMapView, rendererFor overlay: MKOverlay) -> MKOverlayRenderer {
-            if let polygon = overlay as? MKPolygon {
+            // 1️⃣ Blackout overlay
+            if let polygon = overlay as? MKPolygon, polygon.title == "blackout" {
                 let renderer = MKPolygonRenderer(polygon: polygon)
-                if polygon.title == "campusRed" {
-                    renderer.fillColor = UIColor.red.withAlphaComponent(0.35)
-                } else {
-                    renderer.fillColor = UIColor.black  // Completely opaque - no street names visible
-                }
+                renderer.fillColor = UIColor.black
                 renderer.strokeColor = .clear
                 return renderer
             }
+
+            // 2️⃣ Campus red overlay
+            if let polygon = overlay as? MKPolygon, polygon.title == "campusRed" {
+                let renderer = MKPolygonRenderer(polygon: polygon)
+                renderer.fillColor = UIColor.systemRed.withAlphaComponent(0.45)
+                renderer.strokeColor = .clear
+                return renderer
+            }
+
+            // 3️⃣ Unlocked (blue) tiles
+            if let multi = overlay as? MKMultiPolygon {
+                let renderer = MKMultiPolygonRenderer(multiPolygon: multi)
+                renderer.fillColor = UIColor.systemBlue.withAlphaComponent(0.35)
+                renderer.strokeColor = .clear
+                return renderer
+            }
+
+            // 4️⃣ Grid overlay (200m cells)
+            if let multiLine = overlay as? MKMultiPolyline {
+                let renderer = MKMultiPolylineRenderer(multiPolyline: multiLine)
+                renderer.strokeColor = UIColor.black.withAlphaComponent(0.35)
+                renderer.lineWidth = 1
+                return renderer
+            }
+
+            // 4️⃣ Path polyline
             if let line = overlay as? MKPolyline {
                 let renderer = MKPolylineRenderer(polyline: line)
                 renderer.strokeColor = UIColor.systemGreen
@@ -339,9 +409,11 @@ struct GreyedMapView: UIViewRepresentable {
                 renderer.lineCap = .round
                 return renderer
             }
+
             return MKOverlayRenderer(overlay: overlay)
         }
 
+        // MARK: - Location (Real-Time Layer)
         func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
             if manager.authorizationStatus == .authorizedWhenInUse ||
                 manager.authorizationStatus == .authorizedAlways {
@@ -353,17 +425,19 @@ struct GreyedMapView: UIViewRepresentable {
             guard let location = locations.last else { return }
             let coordinate = location.coordinate
 
-            if let last = pathCoordinates.last {
-                let lastLocation = CLLocation(latitude: last.latitude, longitude: last.longitude)
-                if location.distance(from: lastLocation) < movementThresholdMeters {
-                    return
+            let shouldAppend = dataQueue.sync { () -> Bool in
+                if let last = pathPoints.last {
+                    let lastLocation = CLLocation(latitude: last.latitude, longitude: last.longitude)
+                    if location.distance(from: lastLocation) < movementThresholdMeters {
+                        return false
+                    }
                 }
+                pathPoints.append(coordinate)
+                return true
             }
 
-            pathCoordinates.append(coordinate)
-            persistPath()
-            updatePolyline()
-            keepPathVisible()
+            guard shouldAppend else { return }
+            schedulePolylineUpdate()
         }
 
         func startLocationUpdates() {
@@ -374,60 +448,323 @@ struct GreyedMapView: UIViewRepresentable {
             }
         }
 
-        func restorePathOverlay() {
-            guard let mapView = mapView else { return }
-            pathCoordinates = loadPath()
-            updatePolyline(on: mapView)
-            keepPathVisible()
+        // MARK: - Background Analyzer
+        private func startBackgroundAnalyzer() {
+            analysisTimer?.invalidate()
+            analysisTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
+                self?.runBackgroundAnalysis()
+            }
         }
 
-        private func updatePolyline(on mapView: MKMapView? = nil) {
-            guard let mapView = mapView ?? self.mapView else { return }
+        private func runBackgroundAnalysis() {
+            analysisQueue.async { [weak self] in
+                guard let self else { return }
+
+                let snapshot = self.dataQueue.sync { () -> (points: [CLLocationCoordinate2D], startIndex: Int) in
+                    (self.pathPoints, self.lastAnalyzedIndex)
+                }
+
+                guard snapshot.points.count >= 2, snapshot.startIndex < snapshot.points.count - 1 else { return }
+
+                var tileHitDeltas: [String: Int] = [:]
+                let points = snapshot.points
+
+                let startIndex = max(1, snapshot.startIndex)
+                for i in startIndex..<points.count {
+                    let a = points[i - 1]
+                    let b = points[i]
+                    self.sampleSegment(from: a, to: b, hits: &tileHitDeltas)
+                }
+
+                var newlyUnlockedIds: [String] = []
+                self.dataQueue.sync {
+                    self.lastAnalyzedIndex = points.count - 1
+                    for (tileId, delta) in tileHitDeltas {
+                        guard var state = self.tileStates[tileId], !state.isUnlocked else { continue }
+                        state.hitCount += delta
+                        let ratio = Double(state.hitCount) / Double(self.requiredHitsPerTile)
+                        if ratio >= self.unlockThreshold {
+                            state.isUnlocked = true
+                            newlyUnlockedIds.append(tileId)
+                        }
+                        self.tileStates[tileId] = state
+                    }
+                }
+
+                if !newlyUnlockedIds.isEmpty {
+                    DispatchQueue.main.async { [weak self] in
+                        self?.rebuildTileOverlays()
+                    }
+                }
+
+                self.persistState()
+            }
+        }
+
+        private func sampleSegment(from start: CLLocationCoordinate2D, to end: CLLocationCoordinate2D, hits: inout [String: Int]) {
+            let startLocation = CLLocation(latitude: start.latitude, longitude: start.longitude)
+            let endLocation = CLLocation(latitude: end.latitude, longitude: end.longitude)
+            let distance = endLocation.distance(from: startLocation)
+            guard distance > 0 else { return }
+
+            let steps = Int(floor(distance / sampleSpacingMeters))
+            guard steps > 0 else { return }
+
+            for step in 1...steps {
+                let t = (Double(step) * sampleSpacingMeters) / distance
+                let lat = start.latitude + (end.latitude - start.latitude) * t
+                let lon = start.longitude + (end.longitude - start.longitude) * t
+                let point = MKMapPoint(CLLocationCoordinate2D(latitude: lat, longitude: lon))
+                if let tileId = tileId(for: point) {
+                    hits[tileId, default: 0] += 1
+                }
+            }
+        }
+
+        // MARK: - Tiles
+        private func setupTilesAndStateIfNeeded() {
+            guard let mapView, tileDefinitions.isEmpty, !campusMapRect.isNull else { return }
+
+            generateTileGrid()
+
+            if let persisted = loadState() {
+                pathPoints = persisted.path.map { CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude) }
+                lastAnalyzedIndex = persisted.lastAnalyzedIndex
+                for id in tileDefinitions.keys {
+                    let hitCount = persisted.tileHitCounts[id] ?? 0
+                    let unlocked = persisted.unlockedTileIds.contains(id)
+                    tileStates[id] = TileState(hitCount: hitCount, isUnlocked: unlocked || hitCount >= requiredHitsPerTile)
+                }
+            } else {
+                for id in tileDefinitions.keys {
+                    tileStates[id] = TileState(hitCount: 0, isUnlocked: false)
+                }
+            }
+
+            pendingTileIds = tileDefinitions.keys.sorted()
+            addCampusRedOverlayIfNeeded(on: mapView)
+            addGridOverlayIfNeeded(on: mapView)
+            addNextTileBatch(on: mapView)
+            schedulePolylineUpdate()
+        }
+
+        private func generateTileGrid() {
+            tileDefinitions.removeAll()
+            tileOverlays.removeAll()
+
+            tileCols = Int(ceil(campusMapRect.size.width / tileSizeMeters))
+            tileRows = Int(ceil(campusMapRect.size.height / tileSizeMeters))
+
+            for row in 0..<tileRows {
+                for col in 0..<tileCols {
+                    let originX = campusMapRect.origin.x + Double(col) * tileSizeMeters
+                    let originY = campusMapRect.origin.y + Double(row) * tileSizeMeters
+                    let width = min(tileSizeMeters, campusMapRect.maxX - originX)
+                    let height = min(tileSizeMeters, campusMapRect.maxY - originY)
+                    guard width > 0, height > 0 else { continue }
+
+                    let rect = MKMapRect(x: originX, y: originY, width: width, height: height)
+                    let id = "\(row)_\(col)"
+                    tileDefinitions[id] = TileDefinition(id: id, rect: rect, row: row, col: col)
+                }
+            }
+        }
+
+        private func tileId(for point: MKMapPoint) -> String? {
+            guard !campusMapRect.isNull else { return nil }
+            let dx = point.x - campusMapRect.minX
+            let dy = point.y - campusMapRect.minY
+            if dx < 0 || dy < 0 { return nil }
+            let col = Int(floor(dx / tileSizeMeters))
+            let row = Int(floor(dy / tileSizeMeters))
+            guard row >= 0, col >= 0, row < tileRows, col < tileCols else { return nil }
+            return "\(row)_\(col)"
+        }
+
+        private func rebuildTileOverlays() {
+            guard let mapView else { return }
+            if let unlockedTilesOverlay {
+                mapView.removeOverlay(unlockedTilesOverlay)
+            }
+
+            let unlockedPolygons = tileDefinitions.values.compactMap { tile -> MKPolygon? in
+                guard tileStates[tile.id]?.isUnlocked == true else { return nil }
+                return makeTilePolygon(for: tile)
+            }
+
+            let unlockedOverlay = MKMultiPolygon(unlockedPolygons)
+            unlockedTilesOverlay = unlockedOverlay
+
+            mapView.addOverlay(unlockedOverlay, level: .aboveRoads)
+        }
+
+        private func addNextTileBatch(on mapView: MKMapView) {
+            guard !isAddingTiles else { return }
+            isAddingTiles = true
+
+            let batchSize = 200
+            let batch = pendingTileIds.prefix(batchSize)
+            pendingTileIds.removeFirst(min(batchSize, pendingTileIds.count))
+
+            for id in batch {
+                if let tile = tileDefinitions[id] {
+                    let overlay = makeTilePolygon(for: tile)
+                    tileOverlays[id] = overlay
+                }
+            }
+
+            isAddingTiles = false
+
+            if !pendingTileIds.isEmpty {
+                DispatchQueue.main.async { [weak self, weak mapView] in
+                    guard let self, let mapView else { return }
+                    self.addNextTileBatch(on: mapView)
+                }
+            } else {
+                rebuildTileOverlays()
+            }
+        }
+
+        private func makeTilePolygon(for tile: TileDefinition) -> MKPolygon {
+            let rect = tile.rect
+            let topLeft = MKMapPoint(x: rect.minX, y: rect.minY).coordinate
+            let topRight = MKMapPoint(x: rect.maxX, y: rect.minY).coordinate
+            let bottomRight = MKMapPoint(x: rect.maxX, y: rect.maxY).coordinate
+            let bottomLeft = MKMapPoint(x: rect.minX, y: rect.maxY).coordinate
+
+            let coords = [topLeft, topRight, bottomRight, bottomLeft]
+            return MKPolygon(coordinates: coords, count: coords.count)
+        }
+
+        private func addCampusRedOverlayIfNeeded(on mapView: MKMapView) {
+            guard campusRedOverlay == nil else { return }
+
+            let topLeft = MKMapPoint(x: campusMapRect.minX, y: campusMapRect.minY).coordinate
+            let topRight = MKMapPoint(x: campusMapRect.maxX, y: campusMapRect.minY).coordinate
+            let bottomRight = MKMapPoint(x: campusMapRect.maxX, y: campusMapRect.maxY).coordinate
+            let bottomLeft = MKMapPoint(x: campusMapRect.minX, y: campusMapRect.maxY).coordinate
+
+            let coords = [topLeft, topRight, bottomRight, bottomLeft]
+            let polygon = MKPolygon(coordinates: coords, count: coords.count)
+            polygon.title = "campusRed"
+            campusRedOverlay = polygon
+            mapView.addOverlay(polygon, level: .aboveRoads)
+        }
+
+        private func addGridOverlayIfNeeded(on mapView: MKMapView) {
+            guard gridOverlay == nil else { return }
+
+            var lines: [MKPolyline] = []
+            let minX = campusMapRect.minX
+            let maxX = campusMapRect.maxX
+            let minY = campusMapRect.minY
+            let maxY = campusMapRect.maxY
+
+            var x = minX
+            while x <= maxX {
+                let top = MKMapPoint(x: x, y: minY).coordinate
+                let bottom = MKMapPoint(x: x, y: maxY).coordinate
+                lines.append(MKPolyline(coordinates: [top, bottom], count: 2))
+                x += tileSizeMeters
+            }
+
+            var y = minY
+            while y <= maxY {
+                let left = MKMapPoint(x: minX, y: y).coordinate
+                let right = MKMapPoint(x: maxX, y: y).coordinate
+                lines.append(MKPolyline(coordinates: [left, right], count: 2))
+                y += tileSizeMeters
+            }
+
+            let multi = MKMultiPolyline(lines)
+            gridOverlay = multi
+            mapView.addOverlay(multi, level: .aboveRoads)
+        }
+
+        // MARK: - Path Overlay
+        private func schedulePolylineUpdate() {
+            pendingPolylineUpdate?.cancel()
+            let work = DispatchWorkItem { [weak self] in
+                guard let self else { return }
+                let points = self.snapshotPathPoints()
+                self.updatePolyline(with: points)
+            }
+            pendingPolylineUpdate = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: work)
+        }
+
+        private func updatePolyline(with points: [CLLocationCoordinate2D]) {
+            guard let mapView else { return }
             if let polyline {
                 mapView.removeOverlay(polyline)
             }
-            let newLine = MKPolyline(coordinates: pathCoordinates, count: pathCoordinates.count)
+            let newLine = MKPolyline(coordinates: points, count: points.count)
             polyline = newLine
             if showPath {
                 mapView.addOverlay(newLine, level: .aboveLabels)
             }
         }
 
-        private func keepPathVisible() {
-            guard showPath, let mapView, !pathCoordinates.isEmpty else { return }
-            let rect = polyline?.boundingMapRect ?? MKMapRect.null
-            if !rect.isNull {
-                mapView.setVisibleMapRect(
-                    rect,
-                    edgePadding: UIEdgeInsets(top: 80, left: 60, bottom: 80, right: 60),
-                    animated: true
-                )
+        private func snapshotPathPoints() -> [CLLocationCoordinate2D] {
+            dataQueue.sync { pathPoints }
+        }
+
+        // MARK: - Persistence
+        private func persistState() {
+            let storedPath = dataQueue.sync { pathPoints.map { StoredCoordinate(latitude: $0.latitude, longitude: $0.longitude) } }
+            let unlocked = tileStates.filter { $0.value.isUnlocked }.map { $0.key }
+            let state = PersistedState(
+                path: storedPath,
+                unlockedTileIds: unlocked,
+                lastAnalyzedIndex: dataQueue.sync { lastAnalyzedIndex },
+                tileHitCounts: tileStates.mapValues { $0.hitCount }
+            )
+
+            if let data = try? JSONEncoder().encode(state) {
+                try? data.write(to: persistenceURL, options: [.atomic])
             }
         }
 
-        private func persistPath() {
-            let stored = pathCoordinates.map { StoredCoordinate(latitude: $0.latitude, longitude: $0.longitude) }
-            if let data = try? JSONEncoder().encode(stored) {
-                UserDefaults.standard.set(data, forKey: storageKey)
-            }
+        private func loadState() -> PersistedState? {
+            guard let data = try? Data(contentsOf: persistenceURL) else { return nil }
+            return try? JSONDecoder().decode(PersistedState.self, from: data)
         }
 
-        private func clearPath() {
-            pathCoordinates.removeAll()
-            persistPath()
+        private func clearProgress() {
+            dataQueue.sync {
+                pathPoints.removeAll()
+                lastAnalyzedIndex = 0
+            }
             if let polyline {
                 mapView?.removeOverlay(polyline)
             }
             polyline = nil
-        }
 
-        private func loadPath() -> [CLLocationCoordinate2D] {
-            guard let data = UserDefaults.standard.data(forKey: storageKey),
-                  let stored = try? JSONDecoder().decode([StoredCoordinate].self, from: data) else {
-                return []
+            for id in tileDefinitions.keys {
+                tileStates[id] = TileState(hitCount: 0, isUnlocked: false)
             }
-            return stored.map { CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude) }
+            rebuildTileOverlays()
+            persistState()
         }
+    }
+
+    private struct TileDefinition {
+        let id: String
+        let rect: MKMapRect
+        let row: Int
+        let col: Int
+    }
+
+    private struct TileState {
+        var hitCount: Int
+        var isUnlocked: Bool
+    }
+
+    private struct PersistedState: Codable {
+        let path: [StoredCoordinate]
+        let unlockedTileIds: [String]
+        let lastAnalyzedIndex: Int
+        let tileHitCounts: [String: Int]
     }
 
     private struct StoredCoordinate: Codable {
