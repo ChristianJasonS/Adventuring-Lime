@@ -320,13 +320,14 @@ struct GreyedMapView: UIViewRepresentable {
         private var lastClearToken = 0
 
         private let movementThresholdMeters: CLLocationDistance = 10
-        private let tileSizeMeters: Double = 3000
+        private let tileSizeMeters: Double = 2500
         private let sampleSpacingMeters: Double = 40
-        private let unlockThreshold: Double = 0.5
+        private let unlockThreshold: Double = 0.4
 
         private lazy var requiredHitsPerTile: Int = {
             let base = Int(tileSizeMeters / sampleSpacingMeters)
-            return max(6, base * 2)
+            // For small tiles, allow quicker unlocks to avoid never-unlocking grids.
+            return max(1, base)
         }()
 
         private lazy var persistenceURL: URL = {
@@ -451,7 +452,7 @@ struct GreyedMapView: UIViewRepresentable {
         // MARK: - Background Analyzer
         private func startBackgroundAnalyzer() {
             analysisTimer?.invalidate()
-            analysisTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
+            analysisTimer = Timer.scheduledTimer(withTimeInterval: 15, repeats: true) { [weak self] _ in
                 self?.runBackgroundAnalysis()
             }
         }
