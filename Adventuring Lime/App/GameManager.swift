@@ -1,49 +1,67 @@
-//
-//  GameManager.swift
-//  
-//
-//  Created by Mahir Chowdhury on 2026-01-17.
-//
 import SwiftUI
-internal import Combine
+import Combine
 
 @MainActor
 final class GameManager: ObservableObject {
-    var objectWillChange: ObservableObjectPublisher
-    
-
-    // MARK: - Singleton
     static let shared = GameManager()
-    private init() {}
-
-    // MARK: - Player State
+    
     @Published var userXP: Int = 0
     @Published var exploredTiles: Set<String> = []
     @Published var visitedPOIs: Set<String> = []
-
-    // MARK: - Session State
     @Published var currentQuest: String? = nil
-    @Published var highlightedPOI: String? = nil
 
-    // MARK: - Intent APIs
+    // Load data when the app starts
+    private init() {
+        let savedUser = DataManager.shared.load()
+        self.userXP = savedUser.xp
+        self.exploredTiles = savedUser.exploredTiles
+        self.visitedPOIs = savedUser.visitedPOIs
+    }
+
+    // 🧠 Dynamic Level Calculation
+    // Every 1000 XP is one level
+    var userLevel: Int {
+        return (userXP / 1000) + 1
+    }
+
+    // Progress percentage toward the next level (0.0 to 1.0)
+    var levelProgress: Double {
+        return Double(userXP % 1000) / 1000.0
+    }
+
+    // XP needed to reach the next level
+    var xpToNextLevel: Int {
+        return 1000 - (userXP % 1000)
+    }
+
+    // MARK: - Actions
     func addXP(_ amount: Int) {
         userXP += amount
+        saveData()
+        print("📈 XP Added: \(amount). Total: \(userXP) (Level \(userLevel))")
     }
 
     func exploreTile(id: String) {
         exploredTiles.insert(id)
+        saveData()
     }
-
-    func visitPOI(id: String) {
-        visitedPOIs.insert(id)
-    }
-
+    
     func startQuest(_ quest: String) {
         currentQuest = quest
     }
-
-    func endQuest() {
+    
+    // 🛠️ Developer Tools Action
+    func resetProgress() {
+        userXP = 0
+        exploredTiles = []
+        visitedPOIs = []
         currentQuest = nil
+        saveData()
+        print("🔄 App Reset: All progress cleared.")
+    }
+
+    private func saveData() {
+        let user = User(xp: userXP, exploredTiles: exploredTiles, visitedPOIs: visitedPOIs)
+        DataManager.shared.save(user: user)
     }
 }
-
