@@ -1,6 +1,7 @@
 import SwiftUI
 import Foundation
 import Combine
+import MapKit
 
 final class RecommendationViewModel: ObservableObject {
     @Published var prompt: String = ""
@@ -14,7 +15,7 @@ final class RecommendationViewModel: ObservableObject {
     // Service should be injectable; provide a default
     private let service: RecommendationService
 
-    init(service: RecommendationService = RecommendationService(apiKey: "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")) {
+    init(service: RecommendationService = RecommendationService(apiKey: "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")) {
         self.service = service
     }
 
@@ -95,6 +96,7 @@ final class RecommendationViewModel: ObservableObject {
 
                 let replyText = try await self.service.fetchCompletion(prompt: combinedPrompt)
                 self.output = replyText
+                NotificationCenter.default.post(name: Notification.Name("RecommendationsOutputUpdated"), object: nil, userInfo: ["output": replyText])
             } catch {
                 self.output = "Error: \(error.localizedDescription)"
             }
