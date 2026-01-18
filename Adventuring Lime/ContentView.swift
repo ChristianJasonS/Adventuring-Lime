@@ -3,80 +3,86 @@ import SwiftUI
 struct ContentView: View {
     @EnvironmentObject var gameManager: GameManager
     @State private var selectedTab = 0
-    @State private var showDebugMenu = false // Control the sheet
+    @State private var showDebugMenu = false
 
     var body: some View {
         TabView(selection: $selectedTab) {
             
-            // 🌍 TAB 1: EXPLORATION
-            ZStack(alignment: .top) {
-                FogMapView().ignoresSafeArea()
-                XPProgressView()
-                    .padding(.top, 50)
-                    .padding(.horizontal)
-            }
-            .tabItem { Label("Explore", systemImage: "map.fill") }
-            .tag(0)
+            // 🌍 TAB 1: CAMPUS MAP
+            // We use .ignoresSafeArea here to let the map own the full screen
+            CampusMapView()
+                .ignoresSafeArea()
+                .tabItem { Label("Explore", systemImage: "map.fill") }
+                .tag(0)
             
-            // 📜 TAB 2: QUESTS
+            // 📜 TAB 2: QUESTS (Dev 3 Slot)
             RecommendationView()
                 .tabItem { Label("Quests", systemImage: "flag.fill") }
                 .tag(1)
             
-            // 🏆 TAB 3: ACHIEVEMENTS
-            AchievementsView()
-                .tabItem { Label("Profile", systemImage: "trophy.fill") }
-                .tag(2)
+            // 🏆 TAB 3: PROFILE
+            NavigationStack {
+                VStack(spacing: 20) {
+                    AchievementsView()
+                    NavigationLink(destination: SettingsView()) {
+                        HStack {
+                            Image(systemName: "gearshape.fill")
+                            Text("Open Settings")
+                        }
+                        .padding()
+                        .frame(maxWidth: .infinity)
+                        .background(Color.gray.opacity(0.1))
+                        .cornerRadius(12)
+                    }
+                    .padding(.horizontal)
+                    Spacer()
+                }
+                .navigationTitle("Profile")
+            }
+            .tabItem { Label("Profile", systemImage: "person.circle") }
+            .tag(2)
         }
         .tint(.orange)
-        // 👇 THIS IS NEW: The "Safe" Debug Overlay
         .overlay(
+            // The Red Bug Toggle
             Button(action: { showDebugMenu = true }) {
-                Image(systemName: "ladybug.fill") // Debug Bug Icon
+                Image(systemName: "ladybug.fill")
                     .font(.largeTitle)
-                    .foregroundColor(.red.opacity(0.5))
+                    .foregroundColor(.red.opacity(0.4))
                     .padding()
             }
-            .padding(.top, 40) // Move down from dynamic island
+            .padding(.top, 40)
             , alignment: .topTrailing
         )
         .sheet(isPresented: $showDebugMenu) {
-            DebugView() // Clean separation!
+            DebugView()
         }
     }
 }
 
-// 👇 Define the Debug Menu right here (or in a new file)
+// MARK: - Debug View Logic
 struct DebugView: View {
     @EnvironmentObject var gameManager: GameManager
     @Environment(\.dismiss) var dismiss
     
     var body: some View {
-        NavigationView {
+        NavigationStack {
             List {
                 Section("XP Controls") {
                     Button("Add 100 XP") { gameManager.addXP(100) }
-                    Button("Add 500 XP") { gameManager.addXP(500) }
                     Button("Add 1000 XP (Level Up)") { gameManager.addXP(1000) }
                 }
-                
-                Section("Danger Zone") {
-                    Button("Reset All Progress") {
-                        gameManager.resetProgress()
-                        dismiss()
-                    }
-                    .foregroundColor(.red)
+                Section("System Info") {
+                    LabeledContent("Level", value: "\(gameManager.userLevel)")
+                    LabeledContent("Total XP", value: "\(gameManager.userXP)")
                 }
-                
-                Section("Info") {
-                    Text("Level: \(gameManager.userLevel)")
-                    Text("XP: \(gameManager.userXP)")
+                Button("Reset Progress", role: .destructive) {
+                    gameManager.resetProgress()
+                    dismiss()
                 }
             }
-            .navigationTitle("Developer Menu")
-            .toolbar {
-                Button("Done") { dismiss() }
-            }
+            .navigationTitle("Developer Tools")
+            .toolbar { Button("Done") { dismiss() } }
         }
     }
 }
