@@ -87,7 +87,7 @@ struct RecommendationView: View {
                 if !rows.isEmpty { return rows }
             }
         }
-        // Fallback: treat everything as a single row
+        // Fallback: treat everything as a single rowG
         return [LocationRow(fields: fields)]
     }
 
@@ -160,7 +160,7 @@ struct RecommendationView: View {
         // }
     }
 
-    private let service = RecommendationService(apiKey: "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")
+    private let service = RecommendationService(apiKey: "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")
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -173,12 +173,14 @@ struct RecommendationView: View {
                 Button(action: fetch) {
                     if isLoading {
                         ProgressView()
+                    } else if prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        Text("Surprise Me!")
                     } else {
                         Image(systemName: "paperplane.fill")
                     }
                 }
                 .buttonStyle(.borderedProminent)
-                .disabled(isLoading || prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .disabled(isLoading)
             }
 
             Text("Recommendations")
@@ -251,7 +253,8 @@ struct RecommendationView: View {
                 dataFileContents = readDataFile()
                 locationsFileContents = readLocationsFile()
 
-                let fieldText = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+                let trimmed = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+                let fieldText = trimmed.isEmpty ? "Recommend the user as usual" : trimmed
                 let parts = [aiInstructions, dataFileContents, locationsFileContents, fieldText].filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
                 let combinedPrompt = parts.joined(separator: " ")
 
