@@ -160,6 +160,107 @@ struct RecommendationView: View {
         // }
     }
 
+    // MARK: - Data mutations for Personal Information section
+
+    /// Safely write the given text into data.txt and update in-memory state.
+    private func persistDataFile(_ text: String) {
+        do {
+            try text.data(using: .utf8)?.write(to: dataFileURL, options: .atomic)
+            dataFileContents = text
+        } catch {
+            output = "Error writing data.txt: \(error.localizedDescription)"
+        }
+    }
+
+    /// Returns the full data file contents, preferring on-disk copy over bundled.
+    private func currentDataText() -> String {
+        readDataFile()
+    }
+
+    /// Increase numberOfVisits by 1 for a given location name in the Personal Information section.
+    func increase_visits(forName name: String) {
+        updatePersonalInfoRow(named: name) { fields in
+            // Header format: name,types,rating,userRatingsTotal,priceLevel,curatedAppearance,numberOfVisits,liked
+            // numberOfVisits index = 6, liked index = 7
+            if fields.indices.contains(6), let visits = Int(fields[6].trimmingCharacters(in: .whitespaces)) {
+                let newCount = visits + 1
+                var newFields = fields
+                newFields[6] = String(newCount)
+                return newFields
+            }
+            return fields
+        }
+    }
+
+    /// Set liked boolean for a given location name in the Personal Information section.
+    func set_liked(forName name: String, to newValue: Bool) {
+        updatePersonalInfoRow(named: name) { fields in
+            if fields.indices.contains(7) {
+                var newFields = fields
+                newFields[7] = newValue ? "true" : "false"
+                return newFields
+            }
+            return fields
+        }
+    }
+
+    /// Generic updater for a row by name in the Personal Information section.
+    private func updatePersonalInfoRow(named targetName: String, transform: ([String]) -> [String]) {
+        let original = currentDataText()
+        guard !original.isEmpty else { return }
+
+        // Split sections by the '== Nearby locations' marker, keeping head and tail
+        let marker = "== Nearby locations"
+        let parts = original.components(separatedBy: marker)
+        guard let head = parts.first else { return }
+        let tail = parts.dropFirst().joined(separator: marker)
+
+        // Within head, split by lines. The first line starts with '=== Personal Information'
+        var lines = head.split(whereSeparator: { $0 == "\n" || $0 == "\r" }).map(String.init)
+        guard !lines.isEmpty else { return }
+
+        // The next line is the header for personal info columns; keep as-is
+        // Subsequent lines are rows until section end.
+        if lines.count >= 2 {
+            let sectionHeader = lines[0]
+            let columnsHeader = lines[1]
+            let dataLines = Array(lines.dropFirst(2))
+
+            var updatedDataLines: [String] = []
+            var didUpdate = false
+            for line in dataLines {
+                let fields = parseCSVLine(line)
+                if let first = fields.first, first.trimmingCharacters(in: .whitespacesAndNewlines) == targetName {
+                    let newFields = transform(fields)
+                    let newLine = csvJoin(newFields)
+                    updatedDataLines.append(newLine)
+                    didUpdate = true
+                } else {
+                    updatedDataLines.append(line)
+                }
+            }
+
+            guard didUpdate else { return }
+
+            let newHead = ([sectionHeader, columnsHeader] + updatedDataLines).joined(separator: "\n")
+            let rebuilt = tail.isEmpty ? newHead : newHead + marker + tail
+            persistDataFile(rebuilt)
+        }
+    }
+
+    /// Join CSV fields, quoting fields that contain commas or quotes.
+    private func csvJoin(_ fields: [String]) -> String {
+        fields.map { field in
+            var needsQuotes = field.contains(",") || field.contains("\"") || field.contains("\n") || field.contains("\r")
+            var escaped = field.replacingOccurrences(of: "\"", with: "\"\"")
+            if needsQuotes {
+                return "\"" + escaped + "\""
+            } else {
+                return escaped
+            }
+        }.joined(separator: ",")
+    }
+
     private let service = RecommendationService(apiKey: "")
 
     var body: some View {
