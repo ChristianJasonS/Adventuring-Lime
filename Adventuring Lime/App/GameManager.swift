@@ -1,9 +1,3 @@
-//
-//  GameManager.swift
-//
-//
-//  Created by Mahir Chowdhury on 2026-01-17.
-//
 import SwiftUI
 import Combine
 
@@ -24,7 +18,16 @@ final class GameManager: ObservableObject {
     @Published var visitedPOIs: Set<String> = []
     @Published var currentQuest: String? = nil
 
-    // Save data whenever it changes
+    // 🧠 NEW: Level Calculation
+    var userLevel: Int {
+        return (userXP / 1000) + 1
+    }
+
+    var xpToNextLevel: Int {
+        return 1000 - (userXP % 1000)
+    }
+
+    // ACTIONS
     func addXP(_ amount: Int) {
         userXP += amount
         saveData()
@@ -34,14 +37,23 @@ final class GameManager: ObservableObject {
         exploredTiles.insert(id)
         saveData()
     }
+    
+    func startQuest(_ quest: String) {
+        currentQuest = quest
+    }
+    
+    // 🛠️ NEW: Debug / Testing Tools
+    func resetProgress() {
+        userXP = 0
+        exploredTiles = []
+        visitedPOIs = []
+        currentQuest = nil
+        saveData()
+        print("🔄 App Reset to Fresh State")
+    }
 
     private func saveData() {
         let user = User(xp: userXP, exploredTiles: exploredTiles, visitedPOIs: visitedPOIs)
         DataManager.shared.save(user: user)
     }
-    
-    func startQuest(_ quest: String) {
-        currentQuest = quest
-    }
 }
-
