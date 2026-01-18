@@ -2,87 +2,123 @@ import SwiftUI
 
 struct ContentView: View {
     @EnvironmentObject var gameManager: GameManager
+    @StateObject private var achievementVM = AchievementsViewModel()
     @State private var selectedTab = 0
-    @State private var showDebugMenu = false
+    @State private var showAchievements = false
+    @State private var showLevelUp = false
+    
+    // For the pulse animation logic
+    @State private var levelNumberScale: CGFloat = 1.0
 
     var body: some View {
-        TabView(selection: $selectedTab) {
-            
-            // 🌍 TAB 1: CAMPUS MAP
-            // We use .ignoresSafeArea here to let the map own the full screen
-            CampusMapView()
-                .ignoresSafeArea()
-                .tabItem { Label("Explore", systemImage: "map.fill") }
-                .tag(0)
-            
-            // 📜 TAB 2: QUESTS (Dev 3 Slot)
-            RecommendationView()
-                .tabItem { Label("Quests", systemImage: "flag.fill") }
-                .tag(1)
-            
-            // 🏆 TAB 3: PROFILE
-            NavigationStack {
-                VStack(spacing: 20) {
-                    AchievementsView()
-                    NavigationLink(destination: SettingsView()) {
-                        HStack {
-                            Image(systemName: "gearshape.fill")
-                            Text("Open Settings")
+        ZStack {
+            // 1. MAIN NAVIGATION
+            TabView(selection: $selectedTab) {
+                CampusMapView()
+                    .ignoresSafeArea()
+                    .tabItem { Label("Explore", systemImage: "map.fill") }.tag(0)
+                
+//                RecommendationView()
+//                    .tabItem { Label("Quests", systemImage: "flag.fill") }.tag(1)
+                
+                ProfileTab()
+                    .tabItem { Label("Profile", systemImage: "person.circle") }.tag(2)
+            }
+            .tint(.orange)
+
+            // 2. STYLIZED CIRCULAR LEVEL DISPLAY (Explore Tab only)
+            if selectedTab == 0 {
+                VStack {
+                    HStack {
+                        ZStack {
+                            // Progress Ring Track
+                            Circle()
+                                .stroke(Color.primary.opacity(0.1), lineWidth: 5)
+                                .frame(width: 56, height: 56)
+                            
+                            // Glowing Progress Ring
+                            Circle()
+                                .trim(from: 0, to: gameManager.levelProgress)
+                                .stroke(
+                                    LinearGradient(colors: [.orange, .yellow], startPoint: .top, endPoint: .bottom),
+                                    style: StrokeStyle(lineWidth: 5, lineCap: .round)
+                                )
+                                .frame(width: 56, height: 56)
+                                .rotationEffect(.degrees(-90))
+                                .shadow(color: .orange.opacity(0.5), radius: 4)
+                                .animation(.spring(response: 0.6, dampingFraction: 0.8), value: gameManager.levelProgress)
+                            
+                            // Stylized Level Font
+                            VStack(spacing: -2) {
+                                Text("LV")
+                                    .font(.system(size: 10, weight: .black, design: .rounded))
+                                    .foregroundColor(.orange)
+                                
+                                Text("\(gameManager.userLevel)")
+                                    .font(.system(size: 20, weight: .black, design: .monospaced))
+                                    .scaleEffect(levelNumberScale) // Pulse effect
+                            }
                         }
-                        .padding()
-                        .frame(maxWidth: .infinity)
-                        .background(Color.gray.opacity(0.1))
-                        .cornerRadius(12)
+                        .padding(8)
+                        .background(.ultraThinMaterial)
+                        .clipShape(Circle())
+                        .shadow(color: .black.opacity(0.15), radius: 8, x: 0, y: 4)
+                        .padding(.leading, 15)
+                        .padding(.top, 35) // MOVED HIGHER: Changed from 45 to 35
+                        
+                        Spacer()
                     }
-                    .padding(.horizontal)
                     Spacer()
                 }
-                .navigationTitle("Profile")
+                .transition(.asymmetric(insertion: .move(edge: .top).combined(with: .opacity), removal: .opacity))
+                .zIndex(5)
             }
-            .tabItem { Label("Profile", systemImage: "person.circle") }
-            .tag(2)
-        }
-        .tint(.orange)
-        .overlay(
-            // The Red Bug Toggle
-            Button(action: { showDebugMenu = true }) {
-                Image(systemName: "ladybug.fill")
-                    .font(.largeTitle)
-                    .foregroundColor(.red.opacity(0.4))
-                    .padding()
+
+            // 3. FLOATING TROPHY BUTTON
+            VStack {
+                Spacer()
+                HStack {
+                    Spacer()
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.5)) { showAchievements.toggle() }
+                    } label: {
+                        Text("🏆").font(.largeTitle).padding().background(.ultraThinMaterial).clipShape(Circle()).shadow(radius: 5)
+                    }
+                    .padding(.trailing, 20).padding(.bottom, 100)
+                }
             }
-            .padding(.top, 40)
-            , alignment: .topTrailing
-        )
-        .sheet(isPresented: $showDebugMenu) {
-            DebugView()
+
+            // 4. GLOBAL OVERLAYS
+            AchievementOverlay(viewModel: achievementVM, showAchievements: $showAchievements)
+            LevelUpOverlay(isShowing: $showLevelUp, newLevel: gameManager.userLevel)
         }
+        .animation(.spring(), value: selectedTab)
+        // Pulse logic: Triggers whenever XP changes
+        .onChange(of: gameManager.userXP) { _ in
+            withAnimation(.easeInOut(duration: 0.1).repeatCount(1, autoreverses: true)) {
+                levelNumberScale = 1.2
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                withAnimation { levelNumberScale = 1.0 }
+            }
+        }
+        .onChange(of: gameManager.levelUpTrigger) { _ in withAnimation(.spring()) { showLevelUp = true } }
     }
 }
 
-// MARK: - Debug View Logic
-struct DebugView: View {
+struct ProfileTab: View {
     @EnvironmentObject var gameManager: GameManager
-    @Environment(\.dismiss) var dismiss
-    
     var body: some View {
         NavigationStack {
             List {
-                Section("XP Controls") {
-                    Button("Add 100 XP") { gameManager.addXP(100) }
-                    Button("Add 1000 XP (Level Up)") { gameManager.addXP(1000) }
-                }
-                Section("System Info") {
-                    LabeledContent("Level", value: "\(gameManager.userLevel)")
-                    LabeledContent("Total XP", value: "\(gameManager.userXP)")
-                }
-                Button("Reset Progress", role: .destructive) {
-                    gameManager.resetProgress()
-                    dismiss()
+                Section("Demonstration Tools") {
+                    Button("Simulate Exploration") { gameManager.exploreTile(id: "tile_\(Int.random(in: 1...100))") }
+                    Button("Simulate POI Visit") { gameManager.visitPOI(id: "poi_\(gameManager.visitedPOIs.count + 1)") }
+                    Button("Full Level Advancement") { gameManager.addXP(1000) }.foregroundColor(.orange)
+                    Button("Reset All Progress", role: .destructive) { gameManager.resetProgress() }
                 }
             }
-            .navigationTitle("Developer Tools")
-            .toolbar { Button("Done") { dismiss() } }
+            .navigationTitle("Profile")
         }
     }
 }
