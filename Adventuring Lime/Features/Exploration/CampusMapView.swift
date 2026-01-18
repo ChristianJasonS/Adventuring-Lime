@@ -9,11 +9,11 @@ struct CampusMapView: View {
     
     var body: some View {
         ZStack {
-            // THE MAP (Full Screen)
+            // 1. THE MAP (Base Layer)
             GreyedMapView(showPath: $showPath, clearPathToken: $clearPathToken)
-                .ignoresSafeArea()
+                .ignoresSafeArea() // Ensure map fills the screen
             
-            // UI OVERLAYS
+            // 2. UI OVERLAYS
             VStack {
                 HStack {
                     Spacer()
@@ -30,6 +30,7 @@ struct CampusMapView: View {
                 }
                 Spacer()
                 
+                // Button remains fixed above Tab Bar
                 Button(action: { showClearConfirm = true }) {
                     Text("Clear Path History")
                         .font(.system(size: 16, weight: .semibold, design: .rounded))
@@ -39,7 +40,7 @@ struct CampusMapView: View {
                         .background(Color.black.opacity(0.35))
                         .clipShape(Capsule())
                 }
-                .padding(.bottom, 30)
+                .padding(.bottom, 100)
             }
         }
     }
@@ -50,26 +51,28 @@ struct GreyedMapView: UIViewRepresentable {
     @Binding var clearPathToken: Int
     
     private let campusCenter = CLLocationCoordinate2D(latitude: 43.661, longitude: -79.395)
-    private let campusSpan = MKCoordinateSpan(latitudeDelta: 0.018, longitudeDelta: 0.020)
+    
+    // UPDATED: Increased campus area to 0.05 to push the black walls further out
+    private let campusSpan = MKCoordinateSpan(latitudeDelta: 0.05, longitudeDelta: 0.05)
     
     func makeUIView(context: Context) -> MKMapView {
         let mapView = MKMapView()
         
-        // Fix for the "Not Full Screen" issue from your screenshots
         mapView.translatesAutoresizingMaskIntoConstraints = false
         mapView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         
         mapView.delegate = context.coordinator
         context.coordinator.attachMapView(mapView)
         
-        let region = MKCoordinateRegion(center: campusCenter, span: campusSpan)
+        // 🔥 UPDATED: Ultra-tight zoom (0.0015) to ensure the red area fills the screen
+        let initialSpan = MKCoordinateSpan(latitudeDelta: 0.0015, longitudeDelta: 0.0015)
+        let region = MKCoordinateRegion(center: campusCenter, span: initialSpan)
         mapView.setRegion(region, animated: false)
         
         mapView.mapType = .mutedStandard
         mapView.showsUserLocation = true
         mapView.userTrackingMode = .follow
         
-        // Restore Dev 1's original overlay setup
         addBlackoutOverlay(to: mapView)
         return mapView
     }
@@ -88,11 +91,11 @@ struct GreyedMapView: UIViewRepresentable {
         let campusWest = campusCenter.longitude - lonDelta
         let campusEast = campusCenter.longitude + lonDelta
         
-        // RESTORED: Dev 1's specific boundary and rounding logic
-        let outerMaxLat = campusCenter.latitude + 0.1
-        let outerMinLat = campusCenter.latitude - 0.1
-        let outerMaxLon = campusCenter.longitude + 0.1
-        let outerMinLon = campusCenter.longitude - 0.1
+        // Massive outer boundary to prevent white map flashing at edges
+        let outerMaxLat = campusCenter.latitude + 0.5
+        let outerMinLat = campusCenter.latitude - 0.5
+        let outerMaxLon = campusCenter.longitude + 0.5
+        let outerMinLon = campusCenter.longitude - 0.5
         let outerCornerRadius = 0.01
 
         let outerBoundary = makeRoundedRectBoundary(
@@ -118,7 +121,6 @@ struct GreyedMapView: UIViewRepresentable {
         mapView.addOverlay(redFilter, level: .aboveLabels)
     }
 
-    // RESTORED: Dev 1's math for rounded highlights
     private func makeRoundedRectBoundary(minLat: Double, maxLat: Double, minLon: Double, maxLon: Double, radius: Double) -> [CLLocationCoordinate2D] {
         let steps = 6
         var points: [CLLocationCoordinate2D] = []
