@@ -160,7 +160,7 @@ struct RecommendationView: View {
         // }
     }
 
-    private let service = RecommendationService(apiKey: "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")
+    private let service = RecommendationService(apiKey: "")
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -240,6 +240,9 @@ struct RecommendationView: View {
             aiInstructions = readAIInstructions()
             dataFileContents = readDataFile()
             locationsFileContents = readLocationsFile()
+            if !isLoading {
+                fetch()
+            }
         }
     }
 
