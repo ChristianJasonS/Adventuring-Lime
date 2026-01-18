@@ -9,50 +9,36 @@ final class GameManager: ObservableObject {
     @Published var exploredTiles: Set<String> = []
     @Published var visitedPOIs: Set<String> = []
     @Published var levelUpTrigger: Bool = false
+    
+    // NEW: Controls D-Pad visibility
+    @Published var isDPadEnabled: Bool = false
 
-    private init() {
-        let savedUser = DataManager.shared.load()
-        self.userXP = savedUser.xp
-        self.exploredTiles = savedUser.exploredTiles
-        self.visitedPOIs = savedUser.visitedPOIs
-    }
+    private init() {}
 
-    var userLevel: Int {
-        return (userXP / 1000) + 1
-    }
-
-    var levelProgress: Double {
-        return Double(userXP % 1000) / 1000.0
-    }
+    var userLevel: Int { (userXP / 1000) + 1 }
+    var levelProgress: Double { Double(userXP % 1000) / 1000.0 }
 
     func addXP(_ amount: Int) {
         let oldLevel = userLevel
-        userXP += amount
-        if userLevel > oldLevel {
-            levelUpTrigger.toggle()
-        }
-        saveData()
+        userXP += amount*3
+        if userLevel > oldLevel { levelUpTrigger.toggle() }
     }
-    
-    func visitPOI(id: String) {
-        visitedPOIs.insert(id)
-        saveData()
-    }
-    
+
     func exploreTile(id: String) {
-        exploredTiles.insert(id)
-        saveData()
+        if !exploredTiles.contains(id) {
+            exploredTiles.insert(id)
+            addXP(25)
+        }
     }
-
+    
+    func discoverPOI(id: String) {
+        if !visitedPOIs.contains(id) {
+            visitedPOIs.insert(id)
+            addXP(150)
+        }
+    }
+    
     func resetProgress() {
-        userXP = 0
-        exploredTiles = []
-        visitedPOIs = []
-        saveData()
-    }
-
-    private func saveData() {
-        let user = User(xp: userXP, exploredTiles: exploredTiles, visitedPOIs: visitedPOIs)
-        DataManager.shared.save(user: user)
+        userXP = 0; exploredTiles = []; visitedPOIs = []
     }
 }
