@@ -1,113 +1,41 @@
 import SwiftUI
 import Foundation
+import Combine
 
-// NOTE: Do not hardcode secrets in source for production apps.
-struct RecommendationView: View {
-    @State private var prompt: String = ""
-    @State private var output: String = ""
-    @State private var isLoading: Bool = false
+final class RecommendationViewModel: ObservableObject {
+    @Published var prompt: String = ""
+    @Published var output: String = ""
+    @Published var isLoading: Bool = false
 
-    @State private var aiInstructions: String = ""
-    @State private var dataFileContents: String = ""
-    @State private var locationsFileContents: String = ""
+    @Published var aiInstructions: String = ""
+    @Published var dataFileContents: String = ""
+    @Published var locationsFileContents: String = ""
 
-    // Parsed row representation for CSV-like output
-    struct LocationRow: Identifiable, Hashable {
-        let id = UUID()
-        let fields: [String]
+    // Service should be injectable; provide a default
+    private let service: RecommendationService
+
+    init(service: RecommendationService = RecommendationService(apiKey: "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")) {
+        self.service = service
     }
 
-    // Parses a single CSV-like line into fields, handling quoted commas
-    private func parseCSVLine(_ line: String) -> [String] {
-        var result: [String] = []
-        var current = ""
-        var inQuotes = false
-        var iterator = line.makeIterator()
-        while let ch = iterator.next() {
-            if ch == "\"" { // toggle quote state or escape quotes
-                if inQuotes {
-                    // Lookahead: if next is a quote, it's an escaped quote
-                    if let next = iterator.next() {
-                        if next == "\"" { // escaped quote
-                            current.append("\"")
-                        } else if next == "," { // end of quoted field
-                            inQuotes = false
-                            result.append(current)
-                            current.removeAll(keepingCapacity: true)
-                        } else {
-                            // End quote, continue reading the next char
-                            inQuotes = false
-                            current.append(next)
-                        }
-                    } else {
-                        inQuotes = false
-                    }
-                } else {
-                    inQuotes = true
-                }
-            } else if ch == "," && !inQuotes {
-                result.append(current)
-                current.removeAll(keepingCapacity: true)
-            } else {
-                current.append(ch)
-            }
-        }
-        result.append(current)
-        return result.map { $0.trimmingCharacters(in: .whitespaces) }
-    }
-
-    // Attempt to split the output into multiple rows. We support either newline-separated rows
-    // or a single line with repeating groups of fields. We treat 12-13 fields per row as typical.
-    private var parsedRows: [LocationRow] {
-        let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return [] }
-
-        // Prefer newline-separated rows if present
-        let newlineSeparated = trimmed.contains("\n") || trimmed.contains("\r")
-        if newlineSeparated {
-            let lines = trimmed.split(whereSeparator: { $0 == "\n" || $0 == "\r" }).map(String.init)
-            let rows = lines.map { LocationRow(fields: parseCSVLine($0)) }
-            // Filter out obviously empty rows
-            return rows.filter { !$0.fields.joined().trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-        }
-
-        // Otherwise, parse the whole string and chunk into likely rows
-        let fields = parseCSVLine(trimmed)
-        // Heuristic: try to group by 12 or 13 fields (depending on presence of an index or boolean)
-        let candidateGroupSizes = [13, 12, 11]
-        for size in candidateGroupSizes {
-            if fields.count >= size {
-                var rows: [LocationRow] = []
-                var i = 0
-                while i + size <= fields.count {
-                    let slice = Array(fields[i..<(i+size)])
-                    rows.append(LocationRow(fields: slice))
-                    i += size
-                }
-                if !rows.isEmpty { return rows }
-            }
-        }
-        // Fallback: treat everything as a single rowG
-        return [LocationRow(fields: fields)]
-    }
-
+    // File locations
     private var documentsURL: URL {
         FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
     }
-
-    // Bundle resources (read-only) for initial seed
     private var aiInstructionsBundleURL: URL? { Bundle.main.url(forResource: "AIinstructions", withExtension: "txt") }
     private var dataBundleURL: URL? { Bundle.main.url(forResource: "data", withExtension: "txt") }
     private var locationsBundleURL: URL? { Bundle.main.url(forResource: "locations", withExtension: "txt") }
-
-    // Writable copies in Documents
     private var aiInstructionsFileURL: URL { documentsURL.appendingPathComponent("AIinstructions.txt") }
     private var dataFileURL: URL { documentsURL.appendingPathComponent("data.txt") }
     private var locationsFileURL: URL { documentsURL.appendingPathComponent("locations.txt") }
 
-    // Note: No seeding. We only read from Documents if present; otherwise we fall back to bundled read-only files.
-    private func ensureSeedFiles() {
-        // Intentionally left blank: no file writes. We only read existing files.
+    func onAppear() {
+        aiInstructions = readAIInstructions()
+        dataFileContents = readDataFile()
+        locationsFileContents = readLocationsFile()
+        if !isLoading && output.isEmpty {
+            fetch()
+        }
     }
 
     private func readAIInstructions() -> String {
@@ -149,20 +77,32 @@ struct RecommendationView: View {
         return ""
     }
 
-    /// Reads/writes data.txt so it can be called later after API instructions.
-    private func writeDataFile(_ text: String) {
-        // Writes are disabled per current requirements. Keeping function for future use.
-        // do {
-        //     try text.data(using: .utf8)?.write(to: dataFileURL, options: .atomic)
-        //     dataFileContents = text
-        // } catch {
-        //     output = "Error writing data.txt: \(error.localizedDescription)"
-        // }
+    func fetch() {
+        isLoading = true
+        output = ""
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                // Refresh latest file contents just-in-time
+                self.aiInstructions = self.readAIInstructions()
+                self.dataFileContents = self.readDataFile()
+                self.locationsFileContents = self.readLocationsFile()
+
+                let trimmed = self.prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+                let fieldText = trimmed.isEmpty ? "Recommend the user as usual" : trimmed
+                let parts = [self.aiInstructions, self.dataFileContents, self.locationsFileContents, fieldText].filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+                let combinedPrompt = parts.joined(separator: " ")
+
+                let replyText = try await self.service.fetchCompletion(prompt: combinedPrompt)
+                self.output = replyText
+            } catch {
+                self.output = "Error: \(error.localizedDescription)"
+            }
+            self.isLoading = false
+        }
     }
 
-    // MARK: - Data mutations for Personal Information section
-
-    /// Safely write the given text into data.txt and update in-memory state.
+    // Persistence utilities used by mutations
     private func persistDataFile(_ text: String) {
         do {
             try text.data(using: .utf8)?.write(to: dataFileURL, options: .atomic)
@@ -172,27 +112,19 @@ struct RecommendationView: View {
         }
     }
 
-    /// Returns the full data file contents, preferring on-disk copy over bundled.
-    private func currentDataText() -> String {
-        readDataFile()
-    }
+    private func currentDataText() -> String { readDataFile() }
 
-    /// Increase numberOfVisits by 1 for a given location name in the Personal Information section.
     func increase_visits(forName name: String) {
         updatePersonalInfoRow(named: name) { fields in
-            // Header format: name,types,rating,userRatingsTotal,priceLevel,curatedAppearance,numberOfVisits,liked
-            // numberOfVisits index = 6, liked index = 7
             if fields.indices.contains(6), let visits = Int(fields[6].trimmingCharacters(in: .whitespaces)) {
-                let newCount = visits + 1
                 var newFields = fields
-                newFields[6] = String(newCount)
+                newFields[6] = String(visits + 1)
                 return newFields
             }
             return fields
         }
     }
 
-    /// Set liked boolean for a given location name in the Personal Information section.
     func set_liked(forName name: String, to newValue: Bool) {
         updatePersonalInfoRow(named: name) { fields in
             if fields.indices.contains(7) {
@@ -204,90 +136,157 @@ struct RecommendationView: View {
         }
     }
 
-    /// Generic updater for a row by name in the Personal Information section.
     private func updatePersonalInfoRow(named targetName: String, transform: ([String]) -> [String]) {
         let original = currentDataText()
         guard !original.isEmpty else { return }
-
-        // Split sections by the '== Nearby locations' marker, keeping head and tail
         let marker = "== Nearby locations"
         let parts = original.components(separatedBy: marker)
         guard let head = parts.first else { return }
         let tail = parts.dropFirst().joined(separator: marker)
-
-        // Within head, split by lines. The first line starts with '=== Personal Information'
         var lines = head.split(whereSeparator: { $0 == "\n" || $0 == "\r" }).map(String.init)
         guard !lines.isEmpty else { return }
-
-        // The next line is the header for personal info columns; keep as-is
-        // Subsequent lines are rows until section end.
         if lines.count >= 2 {
             let sectionHeader = lines[0]
             let columnsHeader = lines[1]
             let dataLines = Array(lines.dropFirst(2))
-
             var updatedDataLines: [String] = []
             var didUpdate = false
             for line in dataLines {
-                let fields = parseCSVLine(line)
+                let fields = Self.parseCSVLine(line)
                 if let first = fields.first, first.trimmingCharacters(in: .whitespacesAndNewlines) == targetName {
                     let newFields = transform(fields)
-                    let newLine = csvJoin(newFields)
+                    let newLine = Self.csvJoin(newFields)
                     updatedDataLines.append(newLine)
                     didUpdate = true
                 } else {
                     updatedDataLines.append(line)
                 }
             }
-
             guard didUpdate else { return }
-
             let newHead = ([sectionHeader, columnsHeader] + updatedDataLines).joined(separator: "\n")
             let rebuilt = tail.isEmpty ? newHead : newHead + marker + tail
             persistDataFile(rebuilt)
         }
     }
 
-    /// Join CSV fields, quoting fields that contain commas or quotes.
-    private func csvJoin(_ fields: [String]) -> String {
-        fields.map { field in
-            var needsQuotes = field.contains(",") || field.contains("\"") || field.contains("\n") || field.contains("\r")
-            var escaped = field.replacingOccurrences(of: "\"", with: "\"\"")
-            if needsQuotes {
-                return "\"" + escaped + "\""
+    // CSV helpers static so the view can also use them if needed
+    static func parseCSVLine(_ line: String) -> [String] {
+        var result: [String] = []
+        var current = ""
+        var inQuotes = false
+        var iterator = line.makeIterator()
+        while let ch = iterator.next() {
+            if ch == "\"" {
+                if inQuotes {
+                    if let next = iterator.next() {
+                        if next == "\"" {
+                            current.append("\"")
+                        } else if next == "," {
+                            inQuotes = false
+                            result.append(current)
+                            current.removeAll(keepingCapacity: true)
+                        } else {
+                            inQuotes = false
+                            current.append(next)
+                        }
+                    } else {
+                        inQuotes = false
+                    }
+                } else {
+                    inQuotes = true
+                }
+            } else if ch == "," && !inQuotes {
+                result.append(current)
+                current.removeAll(keepingCapacity: true)
             } else {
-                return escaped
+                current.append(ch)
             }
-        }.joined(separator: ",")
+        }
+        result.append(current)
+        return result.map { $0.trimmingCharacters(in: .whitespaces) }
     }
 
-    private let service = RecommendationService(apiKey: "")
+    static func csvJoin(_ fields: [String]) -> String {
+        fields.map { field in
+            let needsQuotes = field.contains(",") || field.contains("\"") || field.contains("\n") || field.contains("\r")
+            let escaped = field.replacingOccurrences(of: "\"", with: "\"\"")
+            return needsQuotes ? "\"" + escaped + "\"" : escaped
+        }.joined(separator: ",")
+    }
+}
+
+struct RecommendationView: View {
+    @StateObject private var viewModel = RecommendationViewModel()
+
+    // Parsed row representation for CSV-like output
+    struct LocationRow: Identifiable, Hashable {
+        let id = UUID()
+        let fields: [String]
+    }
+
+    // Delegate parsing to view model static method
+    private func parseCSVLine(_ line: String) -> [String] {
+        RecommendationViewModel.parseCSVLine(line)
+    }
+
+    private var parsedRows: [LocationRow] {
+        let trimmed = viewModel.output.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return [] }
+
+        // Prefer newline-separated rows if present
+        let newlineSeparated = trimmed.contains("\n") || trimmed.contains("\r")
+        if newlineSeparated {
+            let lines = trimmed.split(whereSeparator: { $0 == "\n" || $0 == "\r" }).map(String.init)
+            let rows = lines.map { LocationRow(fields: parseCSVLine($0)) }
+            // Filter out obviously empty rows
+            return rows.filter { !$0.fields.joined().trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        }
+
+        // Otherwise, parse the whole string and chunk into likely rows
+        let fields = parseCSVLine(trimmed)
+        // Heuristic: try to group by 12 or 13 fields (depending on presence of an index or boolean)
+        let candidateGroupSizes = [13, 12, 11]
+        for size in candidateGroupSizes {
+            if fields.count >= size {
+                var rows: [LocationRow] = []
+                var i = 0
+                while i + size <= fields.count {
+                    let slice = Array(fields[i..<(i+size)])
+                    rows.append(LocationRow(fields: slice))
+                    i += size
+                }
+                if !rows.isEmpty { return rows }
+            }
+        }
+        // Fallback: treat everything as a single row
+        return [LocationRow(fields: fields)]
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Prompt")
                 .font(.headline)
             HStack(spacing: 8) {
-                TextField("Enter prompt", text: $prompt)
+                TextField("Enter prompt", text: $viewModel.prompt)
                     .textFieldStyle(.roundedBorder)
 
-                Button(action: fetch) {
-                    if isLoading {
+                Button(action: viewModel.fetch) {
+                    if viewModel.isLoading {
                         ProgressView()
-                    } else if prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    } else if viewModel.prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         Text("Surprise Me!")
                     } else {
                         Image(systemName: "paperplane.fill")
                     }
                 }
                 .buttonStyle(.borderedProminent)
-                .disabled(isLoading)
+                .disabled(viewModel.isLoading)
             }
 
             Text("Recommendations")
                 .font(.headline)
             ScrollView {
-                if output.isEmpty {
+                if viewModel.output.isEmpty {
                     Text("(no response yet)")
                         .font(.system(.body, design: .monospaced))
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -329,46 +328,14 @@ struct RecommendationView: View {
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 } else {
-                    Text(output)
+                    Text(viewModel.output)
                         .font(.system(.body, design: .monospaced))
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
         }
         .padding()
-        .onAppear {
-            ensureSeedFiles()
-            aiInstructions = readAIInstructions()
-            dataFileContents = readDataFile()
-            locationsFileContents = readLocationsFile()
-            if !isLoading {
-                fetch()
-            }
-        }
-    }
-
-    private func fetch() {
-        isLoading = true
-        output = ""
-        Task {
-            do {
-                // Refresh latest file contents just-in-time
-                aiInstructions = readAIInstructions()
-                dataFileContents = readDataFile()
-                locationsFileContents = readLocationsFile()
-
-                let trimmed = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
-                let fieldText = trimmed.isEmpty ? "Recommend the user as usual" : trimmed
-                let parts = [aiInstructions, dataFileContents, locationsFileContents, fieldText].filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-                let combinedPrompt = parts.joined(separator: " ")
-
-                let replyText = try await service.fetchCompletion(prompt: combinedPrompt)
-                output = replyText
-            } catch {
-                output = "Error: \(error.localizedDescription)"
-            }
-            isLoading = false
-        }
+        .onAppear { viewModel.onAppear() }
     }
 }
 
