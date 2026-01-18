@@ -2,6 +2,7 @@ import SwiftUI
 import MapKit
 import CoreLocation
 
+
 struct CampusMapView: View {
     @EnvironmentObject var gameManager: GameManager
     @State private var showPath = true
@@ -20,47 +21,43 @@ struct CampusMapView: View {
                 showPath: $showPath,
                 clearPathToken: $clearPathToken,
                 simulatedCoord: $simulatedCoord,
-                recParsedCount: $recParsedCount // Binding to update UI
+                recParsedCount: $recParsedCount
             )
             
-            // 1. Controls
+            // UI OVERLAYS
             VStack {
-                HStack {
-                    // DEV 3: Status Indicator
-                    if recParsedCount > 0 {
-                        Text("📍 \(recParsedCount) Recommendations Found")
-                            .font(.caption).bold()
-                            .padding(8).background(.ultraThinMaterial).clipShape(Capsule())
-                            .padding(.top, 60).padding(.leading, 20)
+                // TOP HEADER AREA
+                ZStack(alignment: .top) {
+                    // 1. Status Indicator (Top Left)
+                    HStack {
+                        if recParsedCount > 0 {
+                            Text("📍 \(recParsedCount) Found")
+                                .font(.caption).bold()
+                                .foregroundColor(.white)
+                                .padding(8)
+                                .background(Color.black.opacity(0.6))
+                                .clipShape(Capsule())
+                        }
+                        Spacer()
                     }
-                    Spacer()
-                    Button(action: { showPath.toggle() }) {
-                        Image(systemName: showPath ? "eye.fill" : "eye.slash.fill")
-                            .font(.system(size: 18, weight: .semibold))
-                            .foregroundColor(.white).padding(12)
-                            .background(Color.black.opacity(0.3)).clipShape(Circle())
+                    .padding(.leading, 20)
+                    .padding(.top, 60)
+                    
+                    // 2. Clear Path Button (Top Center)
+                    // Moved from bottom to here, Eye button removed
+                    Button(action: { showClearConfirm = true }) {
+                        Text("Clear Path History")
+                            .font(.system(size: 14, weight: .bold, design: .rounded))
+                            .foregroundColor(.white).padding(.vertical, 12).padding(.horizontal, 24)
+                            .background(Color.black.opacity(0.6)).clipShape(Capsule())
                     }
-                    .padding(.trailing, 20).padding(.top, 60)
+                    .padding(.top, 60) // Spacing for Dynamic Island
                 }
+                
                 Spacer()
-            }
 
-            // 2. Clear Path
-            VStack {
-                Spacer()
-                Button(action: { showClearConfirm = true }) {
-                    Text("Clear Path History")
-                        .font(.system(size: 14, weight: .bold, design: .rounded))
-                        .foregroundColor(.white).padding(.vertical, 12).padding(.horizontal, 24)
-                        .background(Color.black.opacity(0.6)).clipShape(Capsule())
-                }
-                .padding(.bottom, 130)
-            }
-
-            // 3. D-Pad (Toggled)
-            if gameManager.isDPadEnabled {
-                VStack {
-                    Spacer()
+                // BOTTOM CONTROLS (D-Pad Only)
+                if gameManager.isDPadEnabled {
                     HStack {
                         VStack(spacing: 8) {
                             Button(action: { movePlayer(lat: stepSize, lon: 0) }) { Image(systemName: "chevron.up").dPadStyle() }
@@ -127,7 +124,6 @@ struct GreyedMapView: UIViewRepresentable {
         let boundaryRegion = MKCoordinateRegion(center: campusCenter, span: overlaySpan)
         mapView.setCameraBoundary(MKMapView.CameraBoundary(coordinateRegion: boundaryRegion), animated: false)
         
-        // Player
         let person = MKPointAnnotation()
         person.coordinate = simulatedCoord
         person.title = "player"
@@ -149,7 +145,7 @@ struct GreyedMapView: UIViewRepresentable {
         }
     }
     
-    // DEV 3: Custom Annotation Class
+    // Custom Annotation Class
     class RecommendationAnnotation: MKPointAnnotation {
         var rowData: [String] = []
     }
@@ -175,29 +171,24 @@ struct GreyedMapView: UIViewRepresentable {
         init(_ parent: GreyedMapView) {
             self.parent = parent
             super.init()
-            // DEV 3: Listen for AI Recommendations
             NotificationCenter.default.addObserver(self, selector: #selector(handleRecommendations(_:)), name: .recommendationsOutputUpdated, object: nil)
         }
         
-        // DEV 3: Handle the Notification
         @objc func handleRecommendations(_ note: Notification) {
             guard let output = note.userInfo?["output"] as? String else { return }
             
-            // Basic CSV parsing from the output string
             let lines = output.split(whereSeparator: { $0.isNewline })
             var count = 0
             
             DispatchQueue.main.async {
-                // Clear old recommendations
                 if let oldAnns = self.mapView?.annotations.filter({ $0 is RecommendationAnnotation }) {
                     self.mapView?.removeAnnotations(oldAnns)
                 }
                 
-                for (index, line) in lines.enumerated() {
+                for (_, line) in lines.enumerated() {
                     let parts = line.components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespaces) }
-                    if parts.count >= 2 { // Assume Name, Phone, ...
+                    if parts.count >= 2 {
                         let ann = RecommendationAnnotation()
-                        // Jitter the coordinate so they don't stack perfectly
                         let offsetLat = Double.random(in: -0.002...0.002)
                         let offsetLon = Double.random(in: -0.002...0.002)
                         ann.coordinate = CLLocationCoordinate2D(
@@ -216,7 +207,6 @@ struct GreyedMapView: UIViewRepresentable {
         }
 
         func setupGeometry(center: CLLocationCoordinate2D, span: MKCoordinateSpan) {
-            // ... (Your existing geometry code unchanged) ...
             let latDelta = span.latitudeDelta / 2
             let lonDelta = span.longitudeDelta / 2
             let startLat = center.latitude + latDelta
@@ -342,7 +332,6 @@ struct GreyedMapView: UIViewRepresentable {
             return MKOverlayRenderer()
         }
         
-        // DEV 3: Handle the new Recommendation Pins!
         func mapView(_ mapView: MKMapView, viewFor annotation: MKAnnotation) -> MKAnnotationView? {
              if annotation.title == "player" {
                  let v = MKMarkerAnnotationView(annotation: annotation, reuseIdentifier: "player")
@@ -351,7 +340,7 @@ struct GreyedMapView: UIViewRepresentable {
              }
              if let rec = annotation as? RecommendationAnnotation {
                  let v = MKMarkerAnnotationView(annotation: rec, reuseIdentifier: "rec")
-                 v.markerTintColor = .systemPurple // Distinct color for AI pins
+                 v.markerTintColor = .systemPurple
                  v.glyphImage = UIImage(systemName: "sparkles")
                  v.canShowCallout = true
                  return v

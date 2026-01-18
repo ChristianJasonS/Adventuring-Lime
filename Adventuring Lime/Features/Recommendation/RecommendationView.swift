@@ -20,7 +20,7 @@ final class RecommendationViewModel: ObservableObject {
 
     private let service: RecommendationService
 
-    init(service: RecommendationService = RecommendationService(apiKey: "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")) {
+    init(service: RecommendationService = RecommendationService(apiKey: "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")) {
         self.service = service
     }
 
