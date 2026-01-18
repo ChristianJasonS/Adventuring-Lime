@@ -13,14 +13,19 @@ struct ContentView: View {
             TabView(selection: $selectedTab) {
                 CampusMapView()
                     .tabItem { Label("Explore", systemImage: "map.fill") }.tag(0)
+                
+                // DEV 3: New Feature
+                RecommendationView()
+                    .tabItem { Label("Quests", systemImage: "location.magnifyingglass") }.tag(1)
+                
                 ProfileTab()
-                    .tabItem { Label("Profile", systemImage: "person.circle") }.tag(1)
+                    .tabItem { Label("Profile", systemImage: "person.circle") }.tag(2)
             }
             .tint(.orange)
 
-            // ... (Level Badge & Trophy Button Logic remains same) ...
+            // ... (Rest of your UI overlays logic unchanged)
+            // 2. LEVEL BADGE
             if selectedTab == 0 {
-                // Level Badge
                 VStack {
                     HStack {
                         ZStack {
@@ -28,7 +33,6 @@ struct ContentView: View {
                             Circle().trim(from: 0, to: gameManager.levelProgress)
                                 .stroke(LinearGradient(colors: [.orange, .yellow], startPoint: .top, endPoint: .bottom), style: StrokeStyle(lineWidth: 5, lineCap: .round))
                                 .frame(width: 58, height: 58).rotationEffect(.degrees(-90))
-                            
                             VStack(spacing: -2) {
                                 Text("LV").font(.system(size: 10, weight: .black, design: .rounded)).foregroundColor(.orange)
                                 Text("\(gameManager.userLevel)").font(.system(size: 20, weight: .black, design: .monospaced)).scaleEffect(levelNumberScale)
@@ -42,16 +46,18 @@ struct ContentView: View {
                 }
                 .allowsHitTesting(false)
             }
-            
-            // Trophy Button
-            VStack {
-                Spacer()
-                HStack {
+
+            // 3. TROPHY BUTTON
+            if selectedTab == 0 {
+                VStack {
                     Spacer()
-                    Button { withAnimation { showAchievements.toggle() } } label: {
-                        Text("🏆").font(.largeTitle).padding().background(.ultraThinMaterial).clipShape(Circle()).shadow(radius: 5)
+                    HStack {
+                        Spacer()
+                        Button { withAnimation { showAchievements.toggle() } } label: {
+                            Text("🏆").font(.largeTitle).padding().background(.ultraThinMaterial).clipShape(Circle()).shadow(radius: 5)
+                        }
+                        .padding(.trailing, 20).padding(.bottom, 110)
                     }
-                    .padding(.trailing, 20).padding(.bottom, 110)
                 }
             }
 
@@ -66,16 +72,17 @@ struct ContentView: View {
     }
 }
 
+// Profile Tab
 struct ProfileTab: View {
     @EnvironmentObject var gameManager: GameManager
     var body: some View {
         NavigationStack {
             List {
-                Section("Developer Tools") {
-                    // NEW: Toggle to show/hide D-Pad
-                    Toggle("Enable Manual D-Pad", isOn: $gameManager.isDPadEnabled)
-                        .tint(.orange)
+                Section("Settings") {
+                    Toggle("Enable Manual D-Pad", isOn: $gameManager.isDPadEnabled).tint(.orange)
                 }
+                Section { Text("AdventureLime v1.0").font(.caption).foregroundColor(.secondary) }
+                footer: { Text("UofTHacks 13 Submission") }
             }
             .navigationTitle("Profile")
         }
