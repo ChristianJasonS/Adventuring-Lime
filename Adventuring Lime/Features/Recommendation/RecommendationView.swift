@@ -1,31 +1,54 @@
-//import Foundation
-//
-//let apiKey = "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"
-//let url = URL(string: "https://openrouter.ai/api/v1/chat/completions")!
-//
-//var request = URLRequest(url: url)
-//request.httpMethod = "POST"
-//request.addValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
-//request.addValue("<YOUR_SITE_URL>", forHTTPHeaderField: "HTTP-Referer")
-//request.addValue("<YOUR_SITE_NAME>", forHTTPHeaderField: "X-Title")
-//request.addValue("application/json", forHTTPHeaderField: "Content-Type")
-//
-//var prompt = "banana"  // TODO
-//
-//let body: [String: Any] = [
-//    "model": "openai/gpt-5.2",
-//    "messages": [
-//        ["role": "user", "content": "What is the meaning of life?"]
-//    ]
-//]
-//
-//request.httpBody = try JSONSerialization.data(withJSONObject: body)
-//
-//URLSession.shared.dataTask(with: request) { data, response, error in
-//    if let data = data {
-//        let json = try? JSONSerialization.jsonObject(with: data)
-//        print(json ?? "No response")
-//    }
-//}.resume()
+import SwiftUI
+
+struct RecommendationView: View {
+    @EnvironmentObject var gameManager: GameManager
+
+    var body: some View {
+        VStack(spacing: 20) {
+            Spacer()
+            
+            Image(systemName: "location.magnifyingglass")
+                .font(.system(size: 80))
+                .foregroundColor(.orange)
+            
+            Text("Current Objective")
+                .font(.headline)
+                .foregroundColor(.gray)
+            
+            // Show the quest from the GameManager (which gets it from the Database)
+            Text(gameManager.currentQuest ?? "No Active Quest")
+                .font(.title2)
+                .bold()
+                .multilineTextAlignment(.center)
+                .padding()
+                .frame(maxWidth: .infinity)
+                .background(Color.orange.opacity(0.1))
+                .cornerRadius(12)
+                .padding(.horizontal)
+            
+            Button(action: {
+                Task {
+                    // Call the Dummy AI (or Real AI later)
+                    let newQuest = await AIservice.generateQuest()
+                    gameManager.startQuest(newQuest)
+                }
+            }) {
+                HStack {
+                    Image(systemName: "sparkles")
+                    Text("Get AI Quest")
+                }
+                .font(.headline)
+                .foregroundColor(.white)
+                .padding()
+                .frame(maxWidth: .infinity)
+                .background(Color.black)
+                .cornerRadius(12)
+            }
+            .padding(.horizontal)
+            
+            Spacer()
+        }
+    }
+}
 
 
