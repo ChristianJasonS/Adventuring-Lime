@@ -31,7 +31,7 @@ struct MainMenuView: View {
                     
                     // App title
                     VStack(spacing: 10) {
-                        Text("Adventuring")
+                        Text("Adventure")
                             .font(.system(size: 48, weight: .bold, design: .rounded))
                             .foregroundColor(Color(red: 0.4, green: 0.3, blue: 0.6))
                         

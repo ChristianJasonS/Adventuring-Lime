@@ -321,7 +321,7 @@ struct GreyedMapView: UIViewRepresentable {
         private var lastClearToken = 0
 
         private let movementThresholdMeters: CLLocationDistance = 10
-        private let tileSizeMeters: Double = 2500
+        private let tileSizeMeters: Double = 3000
         private let sampleSpacingMeters: Double = 40
         private let unlockThreshold: Double = 0.4
 
