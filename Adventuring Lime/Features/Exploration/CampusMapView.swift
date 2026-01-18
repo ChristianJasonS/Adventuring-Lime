@@ -8,6 +8,7 @@
 import SwiftUI
 import MapKit
 import CoreLocation
+import UIKit
 
 struct CampusMapView: View {
     @Environment(\.dismiss) var dismiss
@@ -412,6 +413,48 @@ struct GreyedMapView: UIViewRepresentable {
             }
 
             return MKOverlayRenderer(overlay: overlay)
+        }
+
+        func mapView(_ mapView: MKMapView, viewFor annotation: MKAnnotation) -> MKAnnotationView? {
+            guard annotation is MKUserLocation else { return nil }
+            let identifier = "LimeUserLocation"
+            let view = mapView.dequeueReusableAnnotationView(withIdentifier: identifier)
+                ?? MKAnnotationView(annotation: annotation, reuseIdentifier: identifier)
+
+            view.annotation = annotation
+            view.subviews.forEach { $0.removeFromSuperview() }
+
+            let containerSize: CGFloat = 40
+            let iconSize: CGFloat = 26
+
+            let auraView = UIView(frame: CGRect(x: 0, y: 0, width: containerSize, height: containerSize))
+            auraView.backgroundColor = UIColor.systemYellow.withAlphaComponent(0.25)
+            auraView.layer.cornerRadius = containerSize / 2
+            auraView.layer.shadowColor = UIColor.systemYellow.cgColor
+            auraView.layer.shadowOpacity = 0.35
+            auraView.layer.shadowRadius = 6
+            auraView.layer.shadowOffset = .zero
+            auraView.isUserInteractionEnabled = false
+            view.addSubview(auraView)
+
+            let iconImage = UIImage(named: "LimeIcon")?.withRenderingMode(.alwaysTemplate)
+                ?? UIImage(systemName: "leaf.fill")?.withRenderingMode(.alwaysTemplate)
+            let iconView = UIImageView(image: iconImage)
+            iconView.tintColor = UIColor.systemYellow
+            iconView.frame = CGRect(
+                x: (containerSize - iconSize) / 2,
+                y: (containerSize - iconSize) / 2,
+                width: iconSize,
+                height: iconSize
+            )
+            iconView.contentMode = .scaleAspectFit
+            iconView.isUserInteractionEnabled = false
+            view.addSubview(iconView)
+
+            view.bounds = CGRect(x: 0, y: 0, width: containerSize, height: containerSize)
+            view.centerOffset = .zero
+            view.canShowCallout = false
+            return view
         }
 
         // MARK: - Location (Real-Time Layer)
